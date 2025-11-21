@@ -17,17 +17,19 @@ the-unknown/
 │   │   │   ├── CollectionSystem.ts # コレクション/レシピ管理
 │   │   │   ├── SkillSystem.ts      # スキルツリー
 │   │   │   ├── TierSystem.ts       # Tier管理
-│   │   │   └── GridSystem.ts       # グリッド管理
+│   │   │   ├── GridSystem.ts       # グリッド管理
+│   │   │   └── IconPoolSystem.ts   # アイコンプール管理
 │   │   ├── entities/
 │   │   │   ├── Building.ts         # 建物エンティティ
-│   │   │   ├── Symbol.ts           # シンボルエンティティ
+│   │   │   ├── Resource.ts         # リソースエンティティ
 │   │   │   ├── Recipe.ts           # レシピエンティティ
 │   │   │   └── Cell.ts             # グリッドセル
 │   │   └── utils/
 │   │       ├── combinatorics.ts    # 組み合わせ計算
 │   │       ├── hash.ts             # ハッシュ生成
 │   │       ├── bigint.ts           # bigint操作
-│   │       └── random.ts           # 乱数・抽選
+│   │       ├── random.ts           # 乱数・抽選
+│   │       └── base58.ts           # base58ユーティリティ
 │   ├── components/           # React コンポーネント
 │   │   ├── Grid/
 │   │   │   ├── GridCanvas.tsx
@@ -40,14 +42,13 @@ the-unknown/
 │   │   │   └── ResourceDisplay.tsx
 │   │   ├── Collection/
 │   │   │   ├── CollectionGrid.tsx
-│   │   │   ├── RecipeCard.tsx
-│   │   │   └── ExploreButton.tsx
+│   │   │   └── RecipeCard.tsx
 │   │   ├── Skills/
 │   │   │   ├── SkillTree.tsx
 │   │   │   └── SkillNode.tsx
 │   │   └── Icons/
-│   │       ├── SymbolIcon.tsx
-│   │       └── CompositeIcon.tsx
+│   │       ├── ResourceIcon.tsx
+│   │       └── CompositeDisplay.tsx
 │   ├── hooks/               # カスタムフック
 │   │   ├── useGameEngine.ts
 │   │   ├── useGrid.ts
@@ -59,14 +60,13 @@ the-unknown/
 │   │   └── types.ts
 │   ├── lib/                 # ユーティリティ
 │   │   ├── db.ts           # IndexedDB wrapper
-│   │   ├── svg.ts          # SVG生成
+│   │   ├── icons.ts        # アイコンライブラリ管理
 │   │   └── constants.ts    # 定数
 │   └── app/                # Next.js App Router
 │       ├── page.tsx
 │       ├── layout.tsx
 │       └── globals.css
 ├── public/
-│   └── icons/              # 静的SVGアイコン
 ├── docs/
 │   ├── GAME_DESIGN.md
 │   └── TECHNICAL_SPEC.md   # このファイル
@@ -82,7 +82,7 @@ the-unknown/
 
 ### 1. GameEngine
 
-メインゲームループと状態管理
+メインゲームループと状態管理（リアルタイム実行）
 
 ```typescript
 // src/core/engine/GameEngine.ts
@@ -96,6 +96,7 @@ export class GameEngine {
     skill: SkillSystem;
     tier: TierSystem;
     grid: GridSystem;
+    iconPool: IconPoolSystem;
   };
 
   private isRunning: boolean = false;
@@ -110,7 +111,8 @@ export class GameEngine {
       collection: new CollectionSystem(),
       skill: new SkillSystem(),
       tier: new TierSystem(),
-      grid: new GridSystem()
+      grid: new GridSystem(),
+      iconPool: new IconPoolSystem()
     };
   }
 
@@ -159,8 +161,8 @@ export class GameEngine {
     const { building, input, output } = flow;
 
     // リソース消費
-    for (const symbol of input) {
-      this.systems.resource.consume(symbol, 1n);
+    for (const resource of input) {
+      this.systems.resource.consume(resource, 1n);
     }
 
     // リソース生成
@@ -173,7 +175,7 @@ export class GameEngine {
     this.systems.tier.gainExp(1n);
   }
 
-  // 外部API
+  // 外部API（いつでも呼び出し可能）
   getState(): GameState {
     return {
       resources: this.systems.resource.getAll(),
@@ -197,8 +199,19 @@ export class GameEngine {
     return this.systems.skill.unlock(skillId);
   }
 
-  explore(): Recipe | null {
-    return this.systems.collection.explore();
+  advanceTier(): boolean {
+    if (!this.systems.tier.canAdvance()) return false;
+
+    const newTier = this.systems.tier.advance();
+
+    // 新しい文字リソースを追加
+    this.systems.resource.unlockCharacter(newTier);
+
+    // 新しいアイコンリソースを追加
+    const newIcon = this.systems.iconPool.unlockNext();
+    this.systems.resource.unlockIcon(newIcon);
+
+    return true;
   }
 }
 ```
@@ -214,8 +227,8 @@ export class GameEngine {
 
 type Flow = {
   building: Building;
-  input: Symbol[];
-  output: Symbol;
+  input: Resource[];
+  output: Resource;
   position: { x: number; y: number };
 };
 
@@ -259,30 +272,30 @@ export class FlowEngine {
   }
 
   private processTransformer(building: Building, grid: Grid): Flow | null {
-    // 入力方向からシンボルを取得
+    // 入力方向からリソースを取得
     const inputCell = this.getAdjacentCell(
       grid,
       building.position,
       this.getOppositeDirection(building.direction)
     );
 
-    if (!inputCell || inputCell.symbols.length === 0) {
+    if (!inputCell || inputCell.resources.length === 0) {
       return null; // 入力なし
     }
 
-    const inputSymbol = inputCell.symbols[0]; // 先頭のシンボル
+    const inputResource = inputCell.resources[0]; // 先頭のリソース
 
     // レシピに一致するか確認
-    if (building.recipe!.input[0] !== inputSymbol.id) {
+    if (building.recipe!.input[0].id !== inputResource.id) {
       return null; // レシピ不一致
     }
 
     // 入力を消費して出力
-    inputCell.symbols.shift();
+    inputCell.resources.shift();
 
     return {
       building,
-      input: [inputSymbol],
+      input: [inputResource],
       output: building.recipe!.output,
       position: building.position
     };
@@ -290,7 +303,7 @@ export class FlowEngine {
 
   private processMerger(building: Building, grid: Grid): Flow | null {
     // 複数方向から入力
-    const inputs: Symbol[] = [];
+    const inputs: Resource[] = [];
     const requiredInputs = building.recipe!.input;
 
     // 入力セルを確認
@@ -301,16 +314,16 @@ export class FlowEngine {
         this.getInputDirection(building, i)
       );
 
-      if (!inputCell || inputCell.symbols.length === 0) {
+      if (!inputCell || inputCell.resources.length === 0) {
         return null; // 入力が揃っていない
       }
 
-      const symbol = inputCell.symbols[0];
-      if (symbol.id !== requiredInputs[i]) {
+      const resource = inputCell.resources[0];
+      if (resource.id !== requiredInputs[i].id) {
         return null; // レシピ不一致
       }
 
-      inputs.push(symbol);
+      inputs.push(resource);
     }
 
     // 全ての入力を消費
@@ -320,7 +333,7 @@ export class FlowEngine {
         building.position,
         this.getInputDirection(building, i)
       );
-      inputCell!.symbols.shift();
+      inputCell!.resources.shift();
     }
 
     return {
@@ -375,7 +388,105 @@ export class FlowEngine {
 
 ---
 
-### 3. CollectionSystem
+### 3. ResourceSystem
+
+2種類のリソース（文字とアイコン）を管理
+
+```typescript
+// src/core/systems/ResourceSystem.ts
+
+export class ResourceSystem {
+  private characters: Map<string, CharacterResource> = new Map();
+  private icons: Map<string, IconResource> = new Map();
+
+  constructor() {
+    // 初期リソース (Tier 1)
+    this.unlockCharacter(1);
+  }
+
+  unlockCharacter(tier: number) {
+    const char = BASE58_CHARS[tier - 1];
+    if (!char) return;
+
+    const resource: CharacterResource = {
+      id: `char_${char}`,
+      type: 'character',
+      value: char,
+      tier,
+      amount: 0n
+    };
+
+    this.characters.set(resource.id, resource);
+  }
+
+  unlockIcon(iconData: IconData) {
+    const resource: IconResource = {
+      id: `icon_${iconData.name}`,
+      type: 'icon',
+      iconName: iconData.name,
+      svg: iconData.component,
+      tier: this.getMaxTier() + 1,
+      amount: 0n
+    };
+
+    this.icons.set(resource.id, resource);
+  }
+
+  produce(resource: Resource, amount: bigint) {
+    if (resource.type === 'character') {
+      const char = this.characters.get(resource.id);
+      if (char) char.amount += amount;
+    } else {
+      const icon = this.icons.get(resource.id);
+      if (icon) icon.amount += amount;
+    }
+  }
+
+  consume(resource: Resource, amount: bigint): boolean {
+    if (resource.type === 'character') {
+      const char = this.characters.get(resource.id);
+      if (!char || char.amount < amount) return false;
+      char.amount -= amount;
+      return true;
+    } else {
+      const icon = this.icons.get(resource.id);
+      if (!icon || icon.amount < amount) return false;
+      icon.amount -= amount;
+      return true;
+    }
+  }
+
+  getAll(): Resource[] {
+    return [
+      ...Array.from(this.characters.values()),
+      ...Array.from(this.icons.values())
+    ];
+  }
+
+  getCharacters(): CharacterResource[] {
+    return Array.from(this.characters.values());
+  }
+
+  getIcons(): IconResource[] {
+    return Array.from(this.icons.values());
+  }
+
+  private getMaxTier(): number {
+    return Math.max(
+      ...Array.from(this.characters.values()).map(c => c.tier),
+      ...Array.from(this.icons.values()).map(i => i.tier)
+    );
+  }
+
+  tick(deltaTime: number) {
+    // 定期処理（必要に応じて）
+  }
+}
+```
+
+---
+
+### 4. CollectionSystem
 
 レシピ生成と発見管理
 
@@ -387,88 +498,70 @@ export class CollectionSystem {
   private recipesByTier: Map<number, Recipe[]> = new Map();
 
   constructor() {
-    this.initialize();
-  }
-
-  private initialize() {
     // 起動時に全tierのレシピを事前生成（tier 1-20）
-    for (let tier = 1; tier <= 20; tier++) {
-      const symbols = this.getSymbolsForTier(tier);
-      const recipes = this.generateRecipes(tier, symbols);
-
-      this.recipesByTier.set(tier, recipes);
-
-      for (const recipe of recipes) {
-        this.recipes.set(recipe.id, recipe);
-      }
-    }
+    // ※実際には動的生成も可能
   }
 
-  private getSymbolsForTier(tier: number): string[] {
-    const baseSymbols = ['・', '|', '△', '□', '○', '◇', '☆', '◎', '●', '◆'];
-    return baseSymbols.slice(0, Math.min(tier + 1, baseSymbols.length));
-  }
-
-  private generateRecipes(tier: number, symbols: string[]): Recipe[] {
+  private generateRecipes(tier: number, resources: Resource[]): Recipe[] {
     const recipes: Recipe[] = [];
 
     // 1. Simple recipes (A → B)
-    for (let i = 0; i < symbols.length; i++) {
-      for (let j = 0; j < symbols.length; j++) {
+    for (let i = 0; i < resources.length; i++) {
+      for (let j = 0; j < resources.length; j++) {
         if (i === j) continue;
 
         recipes.push({
-          id: this.generateRecipeId([symbols[i]], symbols[j], 'transformer'),
+          id: this.generateRecipeId([resources[i]], resources[j], 'transformer'),
           tier,
           type: 'simple',
-          input: [symbols[i]],
-          output: symbols[j],
+          input: [resources[i]],
+          output: resources[j],
           building: 'transformer',
           discovered: false,
           timesUsed: 0n,
-          rarity: this.calculateRarity(1, tier)
+          rarity: this.calculateRarity(1, tier, [resources[i]], resources[j])
         });
       }
     }
 
-    // 2. Compound recipes - 2つ (A + B → AB)
-    for (let i = 0; i < symbols.length; i++) {
-      for (let j = 0; j < symbols.length; j++) {
+    // 2. Compound recipes - 2つ (A + B → C)
+    for (let i = 0; i < resources.length; i++) {
+      for (let j = 0; j < resources.length; j++) {
         if (i === j) continue;
 
-        const output = this.combineSymbols([symbols[i], symbols[j]]);
+        const output = this.combineResources([resources[i], resources[j]]);
         recipes.push({
-          id: this.generateRecipeId([symbols[i], symbols[j]], output, 'merger'),
+          id: this.generateRecipeId([resources[i], resources[j]], output, 'merger'),
           tier,
           type: 'compound',
-          input: [symbols[i], symbols[j]],
+          input: [resources[i], resources[j]],
           output,
           building: 'merger',
           discovered: false,
           timesUsed: 0n,
-          rarity: this.calculateRarity(2, tier)
+          rarity: this.calculateRarity(2, tier, [resources[i], resources[j]], output)
         });
       }
     }
 
-    // 3. Compound recipes - 3つ (A + B + C → ABC)
-    if (symbols.length >= 3) {
-      for (let i = 0; i < symbols.length; i++) {
-        for (let j = 0; j < symbols.length; j++) {
-          for (let k = 0; k < symbols.length; k++) {
+    // 3. Compound recipes - 3つ
+    if (resources.length >= 3) {
+      for (let i = 0; i < resources.length; i++) {
+        for (let j = 0; j < resources.length; j++) {
+          for (let k = 0; k < resources.length; k++) {
             if (i === j || j === k || i === k) continue;
 
-            const output = this.combineSymbols([symbols[i], symbols[j], symbols[k]]);
+            const output = this.combineResources([resources[i], resources[j], resources[k]]);
             recipes.push({
-              id: this.generateRecipeId([symbols[i], symbols[j], symbols[k]], output, 'merger'),
+              id: this.generateRecipeId([resources[i], resources[j], resources[k]], output, 'merger'),
               tier,
               type: 'compound',
-              input: [symbols[i], symbols[j], symbols[k]],
+              input: [resources[i], resources[j], resources[k]],
               output,
               building: 'merger',
               discovered: false,
               timesUsed: 0n,
-              rarity: this.calculateRarity(3, tier)
+              rarity: this.calculateRarity(3, tier, [resources[i], resources[j], resources[k]], output)
             });
           }
         }
@@ -476,24 +569,24 @@ export class CollectionSystem {
     }
 
     // 4. Compound recipes - 4つ
-    if (symbols.length >= 4) {
-      for (let i = 0; i < symbols.length; i++) {
-        for (let j = 0; j < symbols.length; j++) {
-          for (let k = 0; k < symbols.length; k++) {
-            for (let l = 0; l < symbols.length; l++) {
+    if (resources.length >= 4) {
+      for (let i = 0; i < resources.length; i++) {
+        for (let j = 0; j < resources.length; j++) {
+          for (let k = 0; k < resources.length; k++) {
+            for (let l = 0; l < resources.length; l++) {
               if (i === j || i === k || i === l || j === k || j === l || k === l) continue;
 
-              const output = this.combineSymbols([symbols[i], symbols[j], symbols[k], symbols[l]]);
+              const output = this.combineResources([resources[i], resources[j], resources[k], resources[l]]);
               recipes.push({
-                id: this.generateRecipeId([symbols[i], symbols[j], symbols[k], symbols[l]], output, 'merger'),
+                id: this.generateRecipeId([resources[i], resources[j], resources[k], resources[l]], output, 'merger'),
                 tier,
                 type: 'compound',
-                input: [symbols[i], symbols[j], symbols[k], symbols[l]],
+                input: [resources[i], resources[j], resources[k], resources[l]],
                 output,
                 building: 'merger',
                 discovered: false,
                 timesUsed: 0n,
-                rarity: this.calculateRarity(4, tier)
+                rarity: this.calculateRarity(4, tier, [resources[i], resources[j], resources[k], resources[l]], output)
               });
             }
           }
@@ -504,36 +597,80 @@ export class CollectionSystem {
     return recipes;
   }
 
-  private generateRecipeId(input: string[], output: string, building: string): string {
-    const inputStr = input.join(',');
-    return `recipe_${building}_${hashString(inputStr)}_${hashString(output)}`;
+  private generateRecipeId(input: Resource[], output: Resource, building: string): string {
+    const inputStr = input.map(r => r.id).join(',');
+    return `recipe_${building}_${hashString(inputStr)}_${hashString(output.id)}`;
   }
 
-  private combineSymbols(symbols: string[]): string {
-    // シンボルを結合（簡易版）
-    return symbols.join('');
+  private combineResources(resources: Resource[]): Resource {
+    // リソースを合成して新しいリソースを生成
+    // 実装は簡略化（実際にはもっと複雑なロジック）
+    if (resources.every(r => r.type === 'character')) {
+      // 全て文字の場合: 文字列を結合
+      const combined = resources.map(r => (r as CharacterResource).value).join('');
+      return {
+        id: `char_${combined}`,
+        type: 'character',
+        value: combined,
+        display: combined
+      } as CharacterResource;
+    } else if (resources.every(r => r.type === 'icon')) {
+      // 全てアイコンの場合: 複合アイコン
+      const names = resources.map(r => (r as IconResource).iconName).join('_');
+      return {
+        id: `icon_${names}`,
+        type: 'icon',
+        iconName: names,
+        display: null // 複合SVGコンポーネント
+      } as IconResource;
+    } else {
+      // 混在: 特殊な合成
+      return {
+        id: `mixed_${hashArray(resources.map(r => r.id))}`,
+        type: 'icon',
+        display: null
+      } as IconResource;
+    }
   }
 
-  private calculateRarity(inputCount: number, tier: number): number {
+  private calculateRarity(inputCount: number, tier: number, input: Resource[], output: Resource): number {
     let rarity = 100;
     rarity *= Math.pow(2, inputCount - 1);
     rarity *= (1 + tier * 0.1);
+
+    // 文字とアイコンの混在はレア
+    const hasChar = input.some(r => r.type === 'character');
+    const hasIcon = input.some(r => r.type === 'icon');
+    if (hasChar && hasIcon) rarity *= 2.0;
+
     return Math.floor(rarity);
   }
 
   // 実際に生成されたときに呼ばれる
-  onCraft(input: Symbol[], output: Symbol, building: Building) {
-    const recipeId = this.generateRecipeId(
-      input.map(s => s.icon),
-      output.icon,
-      building.type
-    );
+  onCraft(input: Resource[], output: Resource, building: Building) {
+    const recipeId = this.generateRecipeId(input, output, building.type);
 
-    const recipe = this.recipes.get(recipeId);
-    if (!recipe) return; // 未定義のレシピ
+    let recipe = this.recipes.get(recipeId);
 
-    if (!recipe.discovered) {
+    if (!recipe) {
+      // 初めて生成 → 新規レシピとして登録
+      recipe = {
+        id: recipeId,
+        tier: this.getCurrentTier(),
+        type: input.length === 1 ? 'simple' : 'compound',
+        input,
+        output,
+        building: building.type,
+        discovered: true,
+        discoveredAt: new Date(),
+        timesUsed: 1n,
+        rarity: this.calculateRarity(input.length, this.getCurrentTier(), input, output)
+      };
+      this.recipes.set(recipeId, recipe);
+      this.onDiscover(recipe);
+    } else if (!recipe.discovered) {
       recipe.discovered = true;
+      recipe.discoveredAt = new Date();
       this.onDiscover(recipe);
     }
 
@@ -542,7 +679,7 @@ export class CollectionSystem {
 
   private onDiscover(recipe: Recipe) {
     // 発見通知
-    console.log(`Recipe discovered: ${recipe.input.join(' + ')} → ${recipe.output}`);
+    console.log(`Recipe discovered: ${recipe.input.map(r => r.id).join(' + ')} → ${recipe.output.id}`);
 
     // ボーナス付与
     if (recipe.bonus) {
@@ -551,22 +688,6 @@ export class CollectionSystem {
 
     // イベント発火
     this.emit('recipeDiscovered', recipe);
-  }
-
-  // 探索ボタン
-  explore(tier: number): Recipe | null {
-    const recipes = this.recipesByTier.get(tier);
-    if (!recipes) return null;
-
-    const undiscovered = recipes.filter(r => !r.discovered);
-    if (undiscovered.length === 0) return null;
-
-    // レア度に応じた重み付き抽選
-    const selected = weightedRandom(undiscovered, r => 1 / r.rarity);
-    selected.discovered = true;
-    this.onDiscover(selected);
-
-    return selected;
   }
 
   getDiscovered(): Recipe[] {
@@ -579,6 +700,11 @@ export class CollectionSystem {
 
   getRecipe(id: string): Recipe | undefined {
     return this.recipes.get(id);
+  }
+
+  private getCurrentTier(): number {
+    // TierSystemから取得（省略）
+    return 1;
   }
 
   tick(deltaTime: number) {
@@ -597,7 +723,116 @@ export class CollectionSystem {
 
 ---
 
-### 4. 組み合わせ計算ユーティリティ
+### 5. IconPoolSystem
+
+アイコンライブラリからランダムにアイコンを管理
+
+```typescript
+// src/core/systems/IconPoolSystem.ts
+
+export class IconPoolSystem {
+  private available: IconData[] = [];
+  private unlocked: IconData[] = [];
+
+  constructor() {
+    this.initialize();
+  }
+
+  private initialize() {
+    // アイコンライブラリから全てのアイコンを取得
+    const allIcons = getAllIcons(); // Lucide, Heroicons等
+
+    // シャッフル
+    this.available = shuffle(allIcons);
+
+    // Tier 1用にアイコンを1つ解放
+    const firstIcon = this.available.shift()!;
+    this.unlocked.push(firstIcon);
+  }
+
+  unlockNext(): IconData {
+    if (this.available.length === 0) {
+      throw new Error('No more icons available');
+    }
+
+    const icon = this.available.shift()!;
+    this.unlocked.push(icon);
+    return icon;
+  }
+
+  getUnlocked(): IconData[] {
+    return [...this.unlocked];
+  }
+
+  getAvailableCount(): number {
+    return this.available.length;
+  }
+}
+
+// src/lib/icons.ts
+
+import * as LucideIcons from 'lucide-react';
+import * as HeroIcons from '@heroicons/react/24/outline';
+
+export type IconData = {
+  name: string;
+  component: React.ComponentType;
+  library: 'lucide' | 'heroicons';
+};
+
+export function getAllIcons(): IconData[] {
+  const icons: IconData[] = [];
+
+  // Lucide icons
+  for (const [name, component] of Object.entries(LucideIcons)) {
+    if (typeof component === 'function') {
+      icons.push({
+        name,
+        component: component as React.ComponentType,
+        library: 'lucide'
+      });
+    }
+  }
+
+  // Heroicons
+  for (const [name, component] of Object.entries(HeroIcons)) {
+    if (typeof component === 'function') {
+      icons.push({
+        name,
+        component: component as React.ComponentType,
+        library: 'heroicons'
+      });
+    }
+  }
+
+  return icons;
+}
+```
+
+---
+
+### 6. base58ユーティリティ
+
+```typescript
+// src/core/utils/base58.ts
+
+export const BASE58_CHARS = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz'.split('');
+
+export function getCharacterForTier(tier: number): string {
+  if (tier < 1 || tier > BASE58_CHARS.length) {
+    throw new Error(`Invalid tier: ${tier}`);
+  }
+  return BASE58_CHARS[tier - 1];
+}
+
+export function isValidBase58Char(char: string): boolean {
+  return BASE58_CHARS.includes(char);
+}
+```
+
+---
+
+### 7. 組み合わせ計算ユーティリティ
 
 ```typescript
 // src/core/utils/combinatorics.ts
@@ -675,7 +910,7 @@ export function nCr(n: number, r: number): number {
 
 ---
 
-### 5. ハッシュ生成
+### 8. ハッシュ生成
 
 ```typescript
 // src/core/utils/hash.ts
@@ -714,7 +949,7 @@ export function hashObject(obj: Record<string, any>): string {
 
 ---
 
-### 6. 重み付きランダム抽選
+### 9. 重み付きランダム抽選
 
 ```typescript
 // src/core/utils/random.ts
@@ -753,6 +988,18 @@ export function randomChoice<T>(items: T[]): T {
  */
 export function randomInt(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+/**
+ * 配列をシャッフル
+ */
+export function shuffle<T>(array: T[]): T[] {
+  const result = [...array];
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
 }
 ```
 
@@ -847,7 +1094,9 @@ export type SaveData = {
     playTime: number;  // 秒
   };
 
-  resources: Record<string, string>;  // { '・': '1234', ... }
+  // リソース（文字とアイコンを分離）
+  characters: Record<string, string>;  // { "A": "1234", ... }
+  icons: Record<string, string>;       // { "star": "89", ... }
 
   grid: {
     width: number;
@@ -859,6 +1108,11 @@ export type SaveData = {
 
   discoveredRecipes: string[];  // recipe IDs
   recipeStats: Record<string, string>;  // { 'recipe_001': '123', ... } (timesUsed)
+
+  // アイコンプール
+  iconPool: {
+    unlockedIcons: string[];  // アイコン名のリスト
+  };
 };
 
 type BuildingSaveData = {
@@ -867,9 +1121,14 @@ type BuildingSaveData = {
   direction: Direction;
   level: number;
   recipe?: {
-    input: string[];
-    output: string;
+    input: ResourceRef[];
+    output: ResourceRef;
   };
+};
+
+type ResourceRef = {
+  id: string;
+  type: 'character' | 'icon';
 };
 ```
 
@@ -919,175 +1178,17 @@ export function deserializeBigintMap(obj: Record<string, string>): Map<string, b
 
 ---
 
-## SVG生成
-
-### コンポジットアイコン生成
-
-```typescript
-// src/lib/svg.ts
-
-export type SVGIconConfig = {
-  symbols: string[];
-  size?: number;
-  color?: string;
-};
-
-export function generateCompositeIcon(config: SVGIconConfig): string {
-  const { symbols, size = 100, color } = config;
-  const n = symbols.length;
-
-  if (n === 1) {
-    return generateSingleIcon(symbols[0], size, color);
-  }
-
-  if (n === 2) {
-    return generateDoubleIcon(symbols, size, color);
-  }
-
-  if (n === 3) {
-    return generateTripleIcon(symbols, size, color);
-  }
-
-  if (n === 4) {
-    return generateQuadIcon(symbols, size, color);
-  }
-
-  return generateCircularIcon(symbols, size, color);
-}
-
-function generateSingleIcon(symbol: string, size: number, color?: string): string {
-  const svg = getBaseSVG(symbol);
-  return `
-    <svg viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg">
-      <g transform="translate(${size/2}, ${size/2})">
-        ${applyColor(svg, color)}
-      </g>
-    </svg>
-  `;
-}
-
-function generateDoubleIcon(symbols: string[], size: number, color?: string): string {
-  const [s1, s2] = symbols;
-  return `
-    <svg viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg">
-      <g transform="translate(${size * 0.3}, ${size/2}) scale(0.8)">
-        ${applyColor(getBaseSVG(s1), color)}
-      </g>
-      <g transform="translate(${size * 0.7}, ${size/2}) scale(0.8)">
-        ${applyColor(getBaseSVG(s2), color)}
-      </g>
-    </svg>
-  `;
-}
-
-function generateTripleIcon(symbols: string[], size: number, color?: string): string {
-  const [s1, s2, s3] = symbols;
-  return `
-    <svg viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg">
-      <g transform="translate(${size/2}, ${size * 0.25}) scale(0.6)">
-        ${applyColor(getBaseSVG(s1), color)}
-      </g>
-      <g transform="translate(${size * 0.3}, ${size * 0.7}) scale(0.6)">
-        ${applyColor(getBaseSVG(s2), color)}
-      </g>
-      <g transform="translate(${size * 0.7}, ${size * 0.7}) scale(0.6)">
-        ${applyColor(getBaseSVG(s3), color)}
-      </g>
-    </svg>
-  `;
-}
-
-function generateQuadIcon(symbols: string[], size: number, color?: string): string {
-  const positions = [
-    { x: 0.3, y: 0.3 },
-    { x: 0.7, y: 0.3 },
-    { x: 0.3, y: 0.7 },
-    { x: 0.7, y: 0.7 }
-  ];
-
-  const groups = symbols.map((s, i) => `
-    <g transform="translate(${size * positions[i].x}, ${size * positions[i].y}) scale(0.5)">
-      ${applyColor(getBaseSVG(s), color)}
-    </g>
-  `).join('');
-
-  return `
-    <svg viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg">
-      ${groups}
-    </svg>
-  `;
-}
-
-function generateCircularIcon(symbols: string[], size: number, color?: string): string {
-  const n = symbols.length;
-  const angleStep = (2 * Math.PI) / n;
-  const radius = size * 0.3;
-
-  const groups = symbols.map((s, i) => {
-    const angle = i * angleStep - Math.PI / 2;
-    const x = size/2 + radius * Math.cos(angle);
-    const y = size/2 + radius * Math.sin(angle);
-
-    return `
-      <g transform="translate(${x}, ${y}) scale(0.4)">
-        ${applyColor(getBaseSVG(s), color)}
-      </g>
-    `;
-  }).join('');
-
-  return `
-    <svg viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg">
-      ${groups}
-    </svg>
-  `;
-}
-
-function getBaseSVG(symbol: string): string {
-  const svgMap: Record<string, string> = {
-    '・': '<circle cx="0" cy="0" r="10" fill="currentColor" />',
-    '|': '<line x1="0" y1="-20" x2="0" y2="20" stroke="currentColor" stroke-width="4" />',
-    '△': '<polygon points="0,-15 15,15 -15,15" fill="currentColor" />',
-    '□': '<rect x="-12" y="-12" width="24" height="24" fill="currentColor" />',
-    '○': '<circle cx="0" cy="0" r="12" fill="none" stroke="currentColor" stroke-width="3" />',
-    '◇': '<polygon points="0,-15 15,0 0,15 -15,0" fill="currentColor" />',
-    // ... 他のシンボル
-  };
-
-  return svgMap[symbol] || svgMap['・'];
-}
-
-function applyColor(svg: string, color?: string): string {
-  if (!color) return svg;
-  return svg.replace(/currentColor/g, color);
-}
-
-export function getColorForTier(tier: number): string {
-  const hue = (tier * 30) % 360;
-  return `hsl(${hue}, 70%, 60%)`;
-}
-
-export function getColorForRarity(rarity: number): string {
-  if (rarity < 100) return '#aaaaaa';
-  if (rarity < 300) return '#4ade80';
-  if (rarity < 700) return '#60a5fa';
-  if (rarity < 1500) return '#c084fc';
-  return '#fbbf24';
-}
-```
-
----
-
 ## パフォーマンス最適化
 
 ### 1. フロー計算の最適化
 
 ```typescript
-// セルごとにシンボルキューを持つ
+// セルごとにリソースキューを持つ
 type Cell = {
   x: number;
   y: number;
   building: Building | null;
-  symbolQueue: Symbol[];  // 最大長を制限（例: 10個）
+  resourceQueue: Resource[];  // 最大長を制限（例: 10個）
 };
 
 // 毎フレームではなく、tickごとに計算（10 FPS）
@@ -1182,15 +1283,14 @@ export const GAME_CONFIG = {
 
   // 建物
   INITIAL_BUILDING_LIMIT: 10,
-  MAX_SYMBOLS_PER_CELL: 10,
+  MAX_RESOURCES_PER_CELL: 10,
 
   // Tier
-  MAX_TIER: 100,
+  MAX_TIER: 58,  // base58文字数に制限
   INITIAL_TIER: 1,
 
   // コレクション
   MAX_RECIPE_INPUT: 4,
-  EXPLORE_BASE_COST: 100n,
 
   // レア度閾値
   RARITY_THRESHOLDS: {
@@ -1201,9 +1301,7 @@ export const GAME_CONFIG = {
   },
 } as const;
 
-export const BASE_SYMBOLS = [
-  '・', '|', '△', '□', '○', '◇', '☆', '◎', '●', '◆'
-] as const;
+export const BASE58_CHARS = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz'.split('');
 
 export const BUILDING_TYPES = [
   'generator',
@@ -1222,17 +1320,93 @@ export const DIRECTIONS = ['up', 'down', 'left', 'right'] as const;
 
 ---
 
+## 型定義
+
+```typescript
+// src/stores/types.ts
+
+export type ResourceType = 'character' | 'icon';
+
+export type CharacterResource = {
+  id: string;
+  type: 'character';
+  value: string;  // base58文字
+  tier: number;
+  amount: bigint;
+};
+
+export type IconResource = {
+  id: string;
+  type: 'icon';
+  iconName: string;
+  svg: React.ComponentType;
+  tier: number;
+  amount: bigint;
+};
+
+export type Resource = CharacterResource | IconResource;
+
+export type Building = {
+  id: string;
+  type: BuildingType;
+  position: { x: number; y: number };
+  direction: Direction;
+  level: number;
+  recipe?: Recipe;
+};
+
+export type Recipe = {
+  id: string;
+  tier: number;
+  type: 'simple' | 'compound';
+  input: Resource[];
+  output: Resource;
+  building: BuildingType;
+  discovered: boolean;
+  discoveredAt?: Date;
+  timesUsed: bigint;
+  rarity: number;
+  bonus?: Effect;
+};
+
+export type Effect = {
+  type: 'production' | 'efficiency' | 'unlock' | 'grid';
+  value: number;
+  target?: string;
+};
+
+export type Cell = {
+  x: number;
+  y: number;
+  building: Building | null;
+  resourceQueue: Resource[];
+};
+
+export type Grid = {
+  width: number;
+  height: number;
+  cells: Cell[][];
+  buildings: Building[];
+};
+
+export type BuildingType = typeof BUILDING_TYPES[number];
+export type Direction = typeof DIRECTIONS[number];
+```
+
+---
+
 ## まとめ
 
 この技術仕様書では以下を定義しました：
 
 1. **アーキテクチャ**: ディレクトリ構造、システム分離
-2. **コアエンジン**: GameEngine, FlowEngine の実装
-3. **コレクションシステム**: レシピの自動生成と発見
-4. **ユーティリティ**: 組み合わせ計算、ハッシュ、ランダム
-5. **データ永続化**: IndexedDB, セーブデータ
-6. **SVG生成**: 合成アイコンの自動生成
-7. **パフォーマンス**: 最適化手法
-8. **定数**: ゲーム設定値
+2. **コアエンジン**: GameEngine, FlowEngine の実装（リアルタイム実行）
+3. **リソースシステム**: 2種類のリソース（文字とアイコン）の管理
+4. **コレクションシステム**: レシピの自動発見（探索ボタンなし）
+5. **アイコンプールシステム**: アイコンライブラリからランダム選択
+6. **ユーティリティ**: base58、組み合わせ計算、ハッシュ、ランダム
+7. **データ永続化**: IndexedDB、セーブデータ
+8. **パフォーマンス**: 最適化手法
+9. **定数と型**: ゲーム設定値、TypeScript型定義
 
 次のステップは実装フェーズです。

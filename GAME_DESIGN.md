@@ -5,11 +5,13 @@
 ### ゲームコンセプト
 - **タイトル**: The Unknown
 - **世界観**: どの世界の言語でもない、抽象的な概念空間
-- **ビジュアル**: ASCII文字とSVGアイコンのみで構成
+- **ビジュアル**: base58文字とSVGアイコンのみで構成
 - **目的**: 運用コストを極限まで削減し、無限に続くゲーム体験を提供
 
 ### コアコンセプト
-プレイヤーは「観測者」として、未知の**概念空間**を探索する。すべては抽象的な記号（□、○、△、線、点など）とギリシャ文字、ASCII文字で表現される。
+プレイヤーは「観測者」として、未知の**概念空間**を探索する。すべてはbase58エンコードされた文字列（`1-9 A-H J-N P-Z a-k m-z`）と、アイコンライブラリからランダムに選択されたSVGアイコンで表現される。
+
+**重要**: SVGアイコンは文字とは全く関係なく、様々なアイコンライブラリ（Lucide、Heroicons等）からランダムに選ばれたものを使用する。
 
 ---
 
@@ -19,65 +21,114 @@
 **配置パズル型リソースフロー**
 
 - グリッド上に建物（Generator, Transformer, Merger等）を配置
-- リソース（シンボル）がグリッド上をフローする
+- リソース（文字またはアイコン）がグリッド上をフローする
 - 配置と接続を最適化して効率を上げる
 - 2次元的なリソースフローにより無限の組み合わせが発生
 
-### 基本ゲームループ
+### ゲームループ
 
+**重要**: フェーズは存在しない。プレイヤーはいつでも以下の行動を自由に行える：
+
+- **リアルタイム**: リソースフローは常時動作している
+- **配置変更**: いつでも建物を配置/削除/回転できる
+- **スキル解放**: リソースがあればいつでもスキルツリーを解放できる
+- **Tier進行**: 条件を満たせばいつでもTierを上げられる
+- **レシピ発見**: 建物が実際にリソースを処理したとき自動的に発見される
+
+プレイヤーの体験：
 ```
-1. 配置フェーズ
-   - リソースで建物を購入
-   - グリッドに配置
-   - コンベアで接続
-
-2. 最適化フェーズ
-   - フローの効率を観察
+1. グリッドを観察
+   - リソースフローを確認
    - ボトルネックを特定
-   - 配置を組み替え
 
-3. 拡張フェーズ
-   - 新建物タイプ解放（スキルツリー）
-   - グリッドサイズ拡大（Tier上昇時）
-   - 新シンボルタイプ追加
+2. 建物を配置/変更
+   - より効率的な配置を試行錯誤
+   - 新しい組み合わせを実験
 
-4. 発見フェーズ
-   - レシピ（コレクション）を発見
-   - 図鑑に記録
-   - ボーナス効果獲得
+3. レシピ発見
+   - 新しい組み合わせが自動的にコレクションに追加
+   - ボーナス効果を獲得
+
+4. リソース蓄積
+   - スキル解放に使用
+   - Tier進行の条件達成
+
+5. 拡張
+   - グリッドサイズ拡大
+   - 新しいリソースタイプ追加
+   - 新しい建物解放
 ```
 
 ---
 
 ## リソースシステム
 
-### シンボル（Symbol）
-ゲーム内の基本リソース
+### リソースの種類
 
+ゲーム内には**2種類の独立したリソースタイプ**が存在：
+
+#### 1. 文字リソース (Character Resource)
 ```typescript
-type Symbol = {
-  id: string;        // "sym_dot"
-  icon: string;      // "・"
-  tier: number;      // 解放tier
-  svg?: SVGData;     // SVG表現（オプション）
+type CharacterResource = {
+  id: string;          // "char_A3k"
+  value: string;       // base58文字 (例: "A", "k", "3")
+  tier: number;        // 解放tier
+  amount: bigint;      // 所持数
 }
 ```
 
+**base58文字セット**: `1-9 A-H J-N P-Z a-k m-z`
+- 紛らわしい文字を除外: `0 O I l`
+- 合計58文字
+
+#### 2. アイコンリソース (Icon Resource)
+```typescript
+type IconResource = {
+  id: string;          // "icon_star"
+  iconName: string;    // "Star" (アイコンライブラリの名前)
+  svg: SVGComponent;   // SVGコンポーネント
+  tier: number;        // 解放tier
+  amount: bigint;      // 所持数
+}
+```
+
+**アイコンの選択**:
+- アイコンライブラリ（Lucide、Heroicons等）からランダムに選択
+- 文字とは全く関係ない
+- tierごとに新しいアイコンが1つ追加される
+
 ### Tierシステム
-Tierが上がるごとに使えるシンボルの種類が1つ増える
+
+Tierが上がるごとに新しいリソースが1つ追加される
 
 ```
-Tier 1: [・, |]           (2種類)
-Tier 2: [・, |, △]        (3種類)
-Tier 3: [・, |, △, □]     (4種類)
-...
-Tier N: N+1種類
+Tier 1:
+  - 文字: "A"
+  - アイコン: Star
+  合計: 2リソース
+
+Tier 2:
+  - 文字: "A", "B"
+  - アイコン: Star, Circle
+  合計: 4リソース
+
+Tier 3:
+  - 文字: "A", "B", "C"
+  - アイコン: Star, Circle, Square
+  合計: 6リソース
+
+Tier N:
+  - 文字: N個
+  - アイコン: N個
+  合計: 2N個のリソース
 ```
+
+**重要**: tierに上限はない。無限に続く。
 
 **組み合わせ爆発**:
-- 2つ組: nC2 = n(n-1)/2
-- 3つ組: nC3 = n(n-1)(n-2)/6
-- 各組み合わせに順列（permutation）が存在
+- 2N個のリソースから2つ選ぶ: (2N)P2 = 2N × (2N-1)
+- 3つ選ぶ: (2N)P3 = 2N × (2N-1) × (2N-2)
+- 文字とアイコンを混在できる
 
 ---
 
@@ -87,18 +138,20 @@ Tier N: N+1種類
 
 #### Tier 1（基本）
 ```
-[Generator ・]
-  機能: ・を生成（X/秒）
+[Generator]
+  機能: リソースを生成（X/秒）
   出力: 1方向
+  種類: 文字ジェネレーター、アイコンジェネレーター
 
 [Conveyor →]
-  機能: シンボルを転送
+  機能: リソースを転送
   方向: 上下左右
 
-[Transformer ・→|]
-  機能: ・を|に変換
+[Transformer]
+  機能: リソースAをリソースBに変換
   入力: 1種類
   出力: 1種類
+  例: "A" → "B", Star → Circle
 
 [Output]
   機能: ストレージに蓄積
@@ -108,19 +161,22 @@ Tier N: N+1種類
 #### Tier 2以降
 ```
 [Merger]
-  機能: 複数シンボルを合成
+  機能: 複数リソースを合成
   入力: 2-4方向
   出力: 1方向
-  例: ・ + | → ・|
+  例:
+    "A" + "B" → "AB"
+    Star + Circle → (新しいアイコン)
+    "A" + Star → (文字+アイコンの合成)
 
 [Splitter]
-  機能: 合成シンボルを分解
+  機能: 合成リソースを分解
   入力: 1方向
   出力: 2-4方向
-  例: ・| → ・ + |
+  例: "AB" → "A" + "B"
 
 [Filter]
-  機能: 特定シンボルのみ通過
+  機能: 特定リソースのみ通過
   入力: 1方向
   出力: 1方向（フィルタリング済み）
 
@@ -185,13 +241,13 @@ Tier 10: 138個
 
 ```typescript
 type Collection = {
-  id: string;              // "recipe_T2_0_1_2"
+  id: string;              // "recipe_T2_A_B"
   tier: number;            // 解放tier
-  type: 'simple' | 'compound' | 'complex';
+  type: 'simple' | 'compound';
 
   // レシピ情報
-  input: string[];         // 入力シンボル（順序付き）
-  output: string;          // 出力シンボル
+  input: Resource[];       // 入力リソース（順序付き）
+  output: Resource;        // 出力リソース
   building: BuildingType;  // 使用建物
 
   // メタ情報
@@ -200,11 +256,17 @@ type Collection = {
   timesUsed: bigint;       // 使用回数
 
   // ビジュアル
-  icon: SVGComponent;      // 自動生成されたアイコン
+  displayIcon: SVGComponent;  // 表示用アイコン
 
   // ゲーム効果
   bonus?: Effect;          // 発見ボーナス
   rarity: number;          // レア度（1-1000）
+}
+
+type Resource = {
+  type: 'character' | 'icon';
+  id: string;
+  display: string | SVGComponent;  // 表示用
 }
 ```
 
@@ -217,8 +279,10 @@ type Collection = {
 建物: Transformer
 
 例:
-  ・ → |
-  △ → □
+  "A" → "B"
+  Star → Circle
+  "A" → Star  (文字→アイコン)
+  Circle → "C"  (アイコン→文字)
 ```
 
 #### 2. Compound Recipe（合成）
@@ -228,20 +292,12 @@ type Collection = {
 建物: Merger
 
 例:
-  ・ + | → ・|
-  | + ・ → |・  (異なる結果)
-  ・ + | + △ → ・|△
-  △ + | + ・ → △|・  (順序で結果が変わる)
-```
-
-#### 3. Complex Recipe（連鎖）
-```
-入力: 複数ステップ
-出力: 最終成果物
-建物: 複数の建物の組み合わせ
-
-例:
-  ・ → | → △ → 特殊シンボル◈
+  "A" + "B" → "AB"
+  "B" + "A" → "BA"  (異なる結果)
+  Star + Circle → (複合アイコン)
+  "A" + Star → (文字+アイコンの合成)
+  "A" + "B" + "C" → "ABC"
+  Star + Circle + Square → (複合アイコン)
 ```
 
 ### コレクション数の計算
@@ -250,9 +306,9 @@ type Collection = {
 // Tierごとのレシピ総数
 
 function calculateTotalRecipes(tier: number): number {
-  const n = tier + 1;  // シンボル数
+  const n = tier * 2;  // 文字とアイコンで2倍
 
-  // Simple: n → n (各シンボルを他のシンボルに変換)
+  // Simple: n → n (各リソースを他のリソースに変換)
   const simple = n * (n - 1);
 
   // Compound (2つ): 順列 nP2 = n!/(n-2)!
@@ -268,42 +324,43 @@ function calculateTotalRecipes(tier: number): number {
 }
 
 // 例
-Tier 1 (2 symbols):
+Tier 1 (2リソース: A, Star):
   Simple: 2×1 = 2
   Compound2: 2×1 = 2
   Total: 4レシピ
 
-Tier 2 (3 symbols):
-  Simple: 3×2 = 6
-  Compound2: 3×2 = 6
-  Compound3: 3×2×1 = 6
-  Total: 18レシピ
-
-Tier 3 (4 symbols):
+Tier 2 (4リソース: A, B, Star, Circle):
   Simple: 4×3 = 12
   Compound2: 4×3 = 12
   Compound3: 4×3×2 = 24
-  Compound4: 4×3×2×1 = 24
-  Total: 72レシピ
+  Total: 48レシピ
 
-Tier 10 (11 symbols):
-  Simple: 11×10 = 110
-  Compound2: 11×10 = 110
-  Compound3: 11×10×9 = 990
-  Compound4: 11×10×9×8 = 7,920
-  Total: 9,130レシピ
+Tier 3 (6リソース):
+  Simple: 6×5 = 30
+  Compound2: 6×5 = 30
+  Compound3: 6×5×4 = 120
+  Compound4: 6×5×4×3 = 360
+  Total: 540レシピ
+
+Tier 10 (20リソース):
+  Simple: 20×19 = 380
+  Compound2: 20×19 = 380
+  Compound3: 20×19×18 = 6,840
+  Compound4: 20×19×18×17 = 116,280
+  Total: 123,880レシピ
 ```
 
 ### 発見方法
 
-#### A. 自動発見（Crafted）
-建物が実際にシンボルを処理したとき自動的に発見
+#### 自動発見（実際に生成したとき）
+
+建物が実際にリソースを処理したとき自動的に発見される
 
 ```typescript
 function onBuildingProcess(
   building: Building,
-  input: Symbol[],
-  output: Symbol
+  input: Resource[],
+  output: Resource
 ) {
   const recipeId = generateRecipeId(input, output, building.type);
 
@@ -325,36 +382,7 @@ function onBuildingProcess(
 
 **計算コスト**: O(1) - ハッシュマップ検索のみ
 
-#### B. 探索発見（Explored）
-プレイヤーが「探索」ボタンを押してランダム発見
-
-```typescript
-function onExploreButton(tier: number) {
-  const cost = calculateExploreCost(tier);
-  if (!canAfford(cost)) return;
-
-  spend(cost);
-
-  // 未発見レシピから重み付き抽選
-  const undiscovered = recipeDB
-    .getByTier(tier)
-    .filter(r => !r.discovered);
-
-  if (undiscovered.length === 0) {
-    showMessage("このTierのレシピは全て発見済み");
-    return;
-  }
-
-  // レア度に応じた確率
-  const recipe = weightedRandom(undiscovered, r => 1 / r.rarity);
-  recipe.discovered = true;
-
-  showDiscoveryAnimation(recipe);
-  grantBonus(recipe.bonus);
-}
-```
-
-**計算コスト**: O(n) - ボタンクリック時のみ
+**探索ボタンは存在しない**: レシピはプレイヤーが実際に試すことでのみ発見される
 
 ---
 
@@ -376,6 +404,11 @@ function calculateRarity(recipe: Recipe): number {
   if (recipe.building === 'merger') rarity *= 1.5;
   if (recipe.building === 'catalyst') rarity *= 3.0;
 
+  // 文字とアイコンの混在はレア
+  const hasChar = recipe.input.some(r => r.type === 'character');
+  const hasIcon = recipe.input.some(r => r.type === 'icon');
+  if (hasChar && hasIcon) rarity *= 2.0;
+
   return Math.floor(rarity);
 }
 
@@ -395,7 +428,7 @@ function getRarityClass(rarity: number): string {
 type Effect = {
   type: 'production' | 'efficiency' | 'unlock' | 'grid';
   value: number;
-  target?: string;  // 特定シンボルやビルディング
+  target?: string;  // 特定リソースやビルディング
 }
 
 // レシピ発見時のボーナス例
@@ -429,7 +462,7 @@ const bonuses = {
 └─ 特殊ブランチ（準無限）
    ├─ 新建物解放
    ├─ 新メカニクス解放
-   └─ 次元解放
+   └─ 複数ジェネレーター
 ```
 
 ### スキルノード
@@ -451,6 +484,8 @@ type SkillNode = {
   unlocked: boolean;
 }
 ```
+
+**重要**: リソースがあればいつでもスキルを解放できる（フェーズ制限なし）
 
 ### コスト設計（インフレ対策）
 
@@ -518,7 +553,7 @@ function getExpForNextLevel(level: number): bigint {
 
 // 経験値獲得源
 const expSources = {
-  symbolProduced: 1n,           // シンボル生成ごと
+  resourceProduced: 1n,         // リソース生成ごと
   recipeDiscovered: 100n,       // レシピ発見
   rarityBonus: (rarity) => BigInt(rarity),
   tierUnlock: (tier) => BigInt(1000 * tier)
@@ -551,141 +586,103 @@ function canAdvanceTier(currentTier: number): boolean {
 // 例
 const tierRequirements = {
   1: { level: 1,  recipesDiscovered: 2,  totalProduction: 100n },
-  2: { level: 5,  recipesDiscovered: 10, totalProduction: 1000n },
-  3: { level: 10, recipesDiscovered: 30, totalProduction: 10000n },
+  2: { level: 5,  recipesDiscovered: 20, totalProduction: 1000n },
+  3: { level: 10, recipesDiscovered: 100, totalProduction: 10000n },
   // ...
 };
 ```
+
+**重要**: 条件を満たせばいつでもTierを上げられる
 
 ### Tier到達時の変化
 
 ```
-1. 新しいシンボルが1つ追加される
-2. グリッドサイズが拡大する
-3. 新しい建物タイプが解放される可能性
-4. 新しいレシピが大量に追加される（組み合わせ爆発）
-5. スキルツリーの新しいブランチが開く
+1. 新しい文字リソースが1つ追加される（base58から順番に）
+2. 新しいアイコンリソースが1つ追加される（ランダム選択）
+3. グリッドサイズが拡大する
+4. 新しい建物タイプが解放される可能性
+5. 新しいレシピが大量に追加される（組み合わせ爆発）
+6. スキルツリーの新しいブランチが開く
 ```
 
 ---
 
-## SVGアイコン自動生成
+## SVGアイコン管理
 
-### 基本シンボルのSVG定義
-
-```typescript
-const baseSymbols: Record<string, SVGData> = {
-  '・': {
-    path: '<circle cx="50" cy="50" r="10" />',
-    color: '#ffffff'
-  },
-  '|': {
-    path: '<line x1="50" y1="20" x2="50" y2="80" stroke-width="4" />',
-    color: '#ffffff'
-  },
-  '△': {
-    path: '<polygon points="50,20 80,70 20,70" />',
-    color: '#ffffff'
-  },
-  '□': {
-    path: '<rect x="30" y="30" width="40" height="40" />',
-    color: '#ffffff'
-  },
-  // ...
-};
-```
-
-### 合成シンボルの生成
+### アイコンプール
 
 ```typescript
-function generateCompositeIcon(symbols: string[]): SVGComponent {
-  const n = symbols.length;
+// ゲーム開始時にアイコンライブラリからシャッフル
+type IconPool = {
+  available: IconData[];      // まだ未使用のアイコン
+  unlocked: IconData[];       // 解放済みのアイコン
+}
 
-  if (n === 2) {
-    // 2つ: 左右に配置
-    return (
-      <svg viewBox="0 0 100 100">
-        <g transform="translate(30, 50) scale(0.8)">
-          {getSymbolSVG(symbols[0])}
-        </g>
-        <g transform="translate(70, 50) scale(0.8)">
-          {getSymbolSVG(symbols[1])}
-        </g>
-      </svg>
-    );
-  }
+type IconData = {
+  name: string;              // "Star"
+  component: SVGComponent;   // React component
+  library: string;           // "lucide" | "heroicons"
+}
 
-  if (n === 3) {
-    // 3つ: 三角形配置
-    return (
-      <svg viewBox="0 0 100 100">
-        <g transform="translate(50, 25) scale(0.6)">
-          {getSymbolSVG(symbols[0])}
-        </g>
-        <g transform="translate(30, 70) scale(0.6)">
-          {getSymbolSVG(symbols[1])}
-        </g>
-        <g transform="translate(70, 70) scale(0.6)">
-          {getSymbolSVG(symbols[2])}
-        </g>
-      </svg>
-    );
-  }
+// 初期化
+function initializeIconPool(): IconPool {
+  const allIcons = [
+    ...getLucideIcons(),
+    ...getHeroicons(),
+    // 他のアイコンライブラリ
+  ];
 
-  if (n === 4) {
-    // 4つ: 正方形配置
-    const positions = [
-      { x: 30, y: 30 },
-      { x: 70, y: 30 },
-      { x: 30, y: 70 },
-      { x: 70, y: 70 }
-    ];
+  // シャッフル
+  const shuffled = shuffle(allIcons);
 
-    return (
-      <svg viewBox="0 0 100 100">
-        {symbols.map((sym, i) => (
-          <g key={i} transform={`translate(${positions[i].x}, ${positions[i].y}) scale(0.5)`}>
-            {getSymbolSVG(sym)}
-          </g>
-        ))}
-      </svg>
-    );
-  }
+  return {
+    available: shuffled,
+    unlocked: []
+  };
+}
 
-  // 5つ以上: 円形配置
-  const angleStep = (2 * Math.PI) / n;
-  return (
-    <svg viewBox="0 0 100 100">
-      {symbols.map((sym, i) => {
-        const angle = i * angleStep - Math.PI / 2;
-        const x = 50 + 30 * Math.cos(angle);
-        const y = 50 + 30 * Math.sin(angle);
-        return (
-          <g key={i} transform={`translate(${x}, ${y}) scale(0.4)`}>
-            {getSymbolSVG(sym)}
-          </g>
-        );
-      })}
-    </svg>
-  );
+// Tier上昇時
+function onTierUp(tier: number) {
+  const newIcon = iconPool.available.shift()!;
+  iconPool.unlocked.push(newIcon);
+
+  // 新しいアイコンリソースを追加
+  addIconResource(newIcon, tier);
 }
 ```
 
-### 色の自動生成
+### 合成アイコンの生成
+
+文字とアイコンの組み合わせを視覚的に表現
 
 ```typescript
-function getColorForTier(tier: number): string {
-  // Tierごとに色相を変える
-  const hue = (tier * 30) % 360;
-  return `hsl(${hue}, 70%, 60%)`;
-}
+function generateRecipeDisplay(input: Resource[], output: Resource): SVGComponent {
+  if (output.type === 'character') {
+    // 出力が文字の場合: 文字を表示
+    return <span className="text-2xl font-mono">{output.display}</span>;
+  }
 
-function getColorForRarity(rarity: number): string {
-  if (rarity < 100) return '#aaaaaa';   // common: gray
-  if (rarity < 300) return '#4ade80';   // uncommon: green
-  if (rarity < 700) return '#60a5fa';   // rare: blue
-  if (rarity < 1500) return '#c084fc';  // epic: purple
-  return '#fbbf24';                     // legendary: gold
+  if (output.type === 'icon') {
+    // 出力がアイコンの場合
+    if (input.length === 1) {
+      // シンプル変換: そのままアイコン表示
+      return output.display as SVGComponent;
+    } else {
+      // 合成: 複数のリソースを組み合わせて表示
+      return (
+        <div className="flex items-center gap-1">
+          {input.map((res, i) => (
+            <div key={i} className="opacity-50 scale-75">
+              {res.type === 'character'
+                ? <span className="font-mono">{res.display}</span>
+                : res.display
+              }
+            </div>
+          ))}
+        </div>
+      );
+    }
+  }
 }
 ```
 
@@ -705,8 +702,9 @@ type PlayerData = {
   };
   tier: number;
 
-  // リソース
-  symbols: Map<string, bigint>;  // シンボルごとの所持数
+  // リソース（文字とアイコンを分離）
+  characters: Map<string, bigint>;  // { "A": 1234n, "B": 567n, ... }
+  icons: Map<string, bigint>;       // { "star": 89n, "circle": 45n, ... }
 
   // グリッド
   grid: {
@@ -726,7 +724,6 @@ type PlayerData = {
     totalProduction: bigint;
     playTime: number;
     recipesDiscovered: number;
-    // ...
   };
 }
 ```
@@ -741,12 +738,13 @@ type SaveData = {
   player: {
     exp: { current: string; total: string; level: number };
     tier: number;
-    symbols: Record<string, string>;  // bigintを文字列化
+    characters: Record<string, string>;  // bigintを文字列化
+    icons: Record<string, string>;
   };
 
   grid: {
     size: { width: number; height: number };
-    buildings: BuildingData[];
+    buildings: BuildingSaveData[];
   };
 
   skills: Record<string, { level: number }>;
@@ -754,6 +752,11 @@ type SaveData = {
   // コレクションは発見済みIDのみ保存
   discoveredRecipes: string[];
   recipeStats: Record<string, string>;  // timesUsed
+
+  // アイコンプール
+  iconPool: {
+    unlockedIcons: string[];  // アイコン名のリスト
+  };
 }
 
 // IndexedDBに保存
@@ -776,20 +779,23 @@ async function saveGame(data: SaveData) {
 ├────────────────────────────────────────────┤
 │ Sidebar          │ Main Area              │
 │                  │                         │
-│ [Resources]      │  ┌──────────────────┐  │
-│ ・: 1,234        │  │                  │  │
-│ |: 456           │  │   Grid View      │  │
-│ △: 89            │  │   (Canvas/SVG)   │  │
-│ ・|: 23           │  │                  │  │
-│                  │  └──────────────────┘  │
+│ [Characters]     │  ┌──────────────────┐  │
+│ A: 1,234         │  │                  │  │
+│ B: 456           │  │   Grid View      │  │
+│ C: 89            │  │   (Canvas/SVG)   │  │
+│                  │  │                  │  │
+│ [Icons]          │  └──────────────────┘  │
+│ ⭐: 23           │                         │
+│ ⭕: 45           │  [Controls]             │
+│ ▢: 12            │  [Delete] [Rotate]      │
+│                  │  [Clear]                │
 │ [Buildings]      │                         │
-│ Generator [10]   │  [Controls]             │
-│ Conveyor [5]     │  [Delete] [Rotate]      │
-│ Transformer [20] │  [Clear]                │
+│ Generator [10]   │                         │
+│ Conveyor [5]     │                         │
+│ Transformer [20] │                         │
 │ Merger [50]      │                         │
 │                  │                         │
 │ [Actions]        │                         │
-│ [Explore: 100・]  │                         │
 │ [Advance Tier]   │                         │
 ├────────────────────────────────────────────┤
 │ Tabs: [Grid] [Skills] [Collection] [Stats] │
@@ -800,19 +806,21 @@ async function saveGame(data: SaveData) {
 
 ```
 ┌────────────────────────────────────────────┐
-│ Collection: 45 / 9,130 (0.49%)             │
+│ Collection: 45 / 123,880 (0.04%)           │
 ├────────────────────────────────────────────┤
-│ Filters: [All] [T1] [T2] [T3] [Undiscovered]│
-│          [Common] [Rare] [Epic] [Legendary] │
+│ Filters: [All] [T1] [T2] [T3]              │
+│          [Char] [Icon] [Mixed]             │
+│          [Common] [Rare] [Epic] [Legendary]│
 ├────────────────────────────────────────────┤
 │ ┌──────────┐ ┌──────────┐ ┌──────────┐    │
-│ │  [icon]  │ │  [icon]  │ │    ??    │    │
-│ │  ・→|    │ │ ・+|→・|  │ │  locked  │    │
-│ │ Uncommon │ │   Rare   │ │  Common  │    │
-│ │ Used: 234│ │ Used: 45 │ │          │    │
+│ │    A     │ │    ⭐    │ │  A + ⭐  │    │
+│ │    →     │ │    →     │ │    →     │    │
+│ │    B     │ │    ⭕    │ │  [icon]  │    │
+│ │ Common   │ │ Uncommon │ │   Rare   │    │
+│ │ Used: 234│ │ Used: 45 │ │ Used: 12 │    │
 │ └──────────┘ └──────────┘ └──────────┘    │
 │                                             │
-│ [Explore] (Cost: 100・)                     │
+│ 注: レシピは実際に試すことで発見される     │
 └────────────────────────────────────────────┘
 ```
 
@@ -824,7 +832,7 @@ async function saveGame(data: SaveData) {
 - **フレームワーク**: Next.js 14+ (App Router)
 - **スタイリング**: TailwindCSS
 - **状態管理**: Zustand or Jotai
-- **SVG**: React SVG components
+- **アイコン**: Lucide React, Heroicons
 - **アニメーション**: Framer Motion (optional)
 
 ### データ永続化
@@ -838,7 +846,7 @@ async function saveGame(data: SaveData) {
   /core
     /engine        # ゲームループ、フロー計算
     /systems       # リソース、コレクション、スキル
-    /entities      # Building, Symbol, Recipe
+    /entities      # Building, Resource, Recipe
     /utils         # 計算、生成アルゴリズム
   /components      # Reactコンポーネント
   /hooks           # カスタムフック
@@ -852,16 +860,16 @@ async function saveGame(data: SaveData) {
 ### Phase 1: MVP（最小実装）
 1. グリッドシステム（5x5固定）
 2. 基本建物（Generator, Conveyor, Transformer, Output）
-3. 2種類のシンボル（・、|）
-4. 簡単なレシピ発見（自動）
-5. 基本的なリソースフロー
+3. 2種類の文字リソース（"A", "B"）
+4. 2種類のアイコンリソース（Star, Circle）
+5. 簡単なレシピ発見（自動）
+6. 基本的なリソースフロー
 
 ### Phase 2: コアループ
 1. スキルツリー（基礎ブランチのみ）
 2. Tier 2-3の実装
-3. 探索ボタン
-4. コレクション図鑑UI
-5. セーブ/ロード（IndexedDB）
+3. コレクション図鑑UI
+4. セーブ/ロード（IndexedDB）
 
 ### Phase 3: 拡張
 1. 追加建物（Merger, Splitter, Filter等）
@@ -905,7 +913,6 @@ Tier 11+:  数百時間（エンドコンテンツ）
 ```
 Tier N:
   - 能動プレイ: 1時間あたり10-20レシピ
-  - 探索ボタン: 1回あたり1レシピ
   - 完全コンプリート: Tier Nで数十時間
 ```
 
@@ -915,8 +922,8 @@ Tier N:
 
 ### 未決定要素
 - [ ] 具体的な建物の処理速度
-- [ ] 探索ボタンのコスト計算式
-- [ ] Complex Recipeの実装詳細
+- [ ] base58文字の選択順序（A-Z優先？ランダム？）
+- [ ] アイコンライブラリの選定と数
 - [ ] Resonator（共鳴器）のメカニクス
 - [ ] マルチプレイヤー要素の有無
 - [ ] リーダーボード
@@ -927,6 +934,7 @@ Tier N:
 - [ ] リソースフローのアニメーション実装
 - [ ] bigintのシリアライゼーション
 - [ ] IndexedDBのマイグレーション戦略
+- [ ] アイコンの動的ロード
 
 ---
 
@@ -934,11 +942,13 @@ Tier N:
 
 **The Unknown**は、配置パズル型リソースフローゲームとして、以下の特徴を持つ：
 
-1. **抽象的世界観**: ASCII文字とSVGのみ
-2. **無限コンテンツ**: Tierごとのレシピ組み合わせ爆発
-3. **戦略性**: グリッド配置の最適化
-4. **発見の喜び**: レシピ（コレクション）の発見
-5. **インフレ制御**: 物理的制約と数学的バランス
-6. **低コスト運用**: イラスト不要、ランタイムのみで完結
+1. **抽象的世界観**: base58文字とSVGアイコンのみ
+2. **2種類のリソース**: 文字リソースとアイコンリソースの独立した系統
+3. **無限コンテンツ**: Tierごとのレシピ組み合わせ爆発
+4. **リアルタイム**: フェーズ制限なし、いつでも変更可能
+5. **発見の喜び**: 実際に試すことでレシピを発見
+6. **戦略性**: グリッド配置の最適化
+7. **インフレ制御**: 物理的制約と数学的バランス
+8. **低コスト運用**: イラスト不要、ランタイムのみで完結
 
 コアコンセプトは明確であり、実装可能な設計となっている。
