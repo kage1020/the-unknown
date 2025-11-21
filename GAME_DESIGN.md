@@ -139,19 +139,18 @@ Tier N:
 #### Tier 1（基本）
 ```
 [Generator]
-  機能: リソースを生成（X/秒）
+  機能: 特定のリソースを生成（X/秒）
   出力: 1方向
-  種類: 文字ジェネレーター、アイコンジェネレーター
+  種類: 各リソースごとに専用のジェネレーターが存在
+  例: Generator(A), Generator(Star)
+
+  重要: リソース間の変換は不可。
+        各リソースは専用ジェネレーターからのみ生成可能。
+        これによりゲームバランスを保つ。
 
 [Conveyor →]
   機能: リソースを転送
   方向: 上下左右
-
-[Transformer]
-  機能: リソースAをリソースBに変換
-  入力: 1種類
-  出力: 1種類
-  例: "A" → "B", Star → Circle
 
 [Output]
   機能: ストレージに蓄積
@@ -198,7 +197,7 @@ type Building = {
   position: { x: number; y: number };
   direction: 'up' | 'down' | 'left' | 'right';
   level: number;
-  recipe?: Recipe;  // Transformer, Merger用
+  recipe?: Recipe;  // Generator, Merger用
 }
 ```
 
@@ -243,10 +242,10 @@ Tier 10: 138個
 type Collection = {
   id: string;              // "recipe_T2_A_B"
   tier: number;            // 解放tier
-  type: 'simple' | 'compound';
+  type: 'generation' | 'compound';
 
   // レシピ情報
-  input: Resource[];       // 入力リソース（順序付き）
+  input: Resource[];       // 入力リソース（順序付き、generationの場合は空配列）
   output: Resource;        // 出力リソース
   building: BuildingType;  // 使用建物
 
@@ -272,17 +271,17 @@ type Resource = {
 
 ### レシピの種類
 
-#### 1. Simple Recipe（単純変換）
+#### 1. Generation Recipe（生成）
 ```
-入力: 1種類
+入力: なし
 出力: 1種類
-建物: Transformer
+建物: Generator
 
 例:
-  "A" → "B"
-  Star → Circle
-  "A" → Star  (文字→アイコン)
-  Circle → "C"  (アイコン→文字)
+  Generator(A) → "A"
+  Generator(Star) → Star
+
+重要: 各リソースは専用ジェネレーターからのみ生成される
 ```
 
 #### 2. Compound Recipe（合成）
@@ -308,8 +307,8 @@ type Resource = {
 function calculateTotalRecipes(tier: number): number {
   const n = tier * 2;  // 文字とアイコンで2倍
 
-  // Simple: n → n (各リソースを他のリソースに変換)
-  const simple = n * (n - 1);
+  // Generation: 各リソースごとに1つのジェネレーター
+  const generation = n;
 
   // Compound (2つ): 順列 nP2 = n!/(n-2)!
   const compound2 = n * (n - 1);
@@ -320,34 +319,34 @@ function calculateTotalRecipes(tier: number): number {
   // Compound (4つ): 順列 nP4
   const compound4 = n * (n - 1) * (n - 2) * (n - 3);
 
-  return simple + compound2 + compound3 + compound4;
+  return generation + compound2 + compound3 + compound4;
 }
 
 // 例
 Tier 1 (2リソース: A, Star):
-  Simple: 2×1 = 2
+  Generation: 2
   Compound2: 2×1 = 2
   Total: 4レシピ
 
 Tier 2 (4リソース: A, B, Star, Circle):
-  Simple: 4×3 = 12
+  Generation: 4
   Compound2: 4×3 = 12
   Compound3: 4×3×2 = 24
-  Total: 48レシピ
+  Total: 40レシピ
 
 Tier 3 (6リソース):
-  Simple: 6×5 = 30
+  Generation: 6
   Compound2: 6×5 = 30
   Compound3: 6×5×4 = 120
   Compound4: 6×5×4×3 = 360
-  Total: 540レシピ
+  Total: 516レシピ
 
 Tier 10 (20リソース):
-  Simple: 20×19 = 380
+  Generation: 20
   Compound2: 20×19 = 380
   Compound3: 20×19×18 = 6,840
   Compound4: 20×19×18×17 = 116,280
-  Total: 123,880レシピ
+  Total: 123,520レシピ
 ```
 
 ### 発見方法
@@ -829,11 +828,13 @@ async function saveGame(data: SaveData) {
 ## 技術スタック
 
 ### フロントエンド
-- **フレームワーク**: Next.js 14+ (App Router)
+- **ビルドツール**: Vite
+- **フレームワーク**: React
 - **スタイリング**: TailwindCSS
 - **状態管理**: Zustand or Jotai
 - **アイコン**: Lucide React, Heroicons
 - **アニメーション**: Framer Motion (optional)
+- **テスト**: Vitest
 
 ### データ永続化
 - **ローカル**: IndexedDB (via idb)
@@ -850,7 +851,10 @@ async function saveGame(data: SaveData) {
     /utils         # 計算、生成アルゴリズム
   /components      # Reactコンポーネント
   /hooks           # カスタムフック
-  /app             # Next.js App Router
+  /lib             # ユーティリティ、定数
+  /stores          # 状態管理
+  index.html       # エントリーポイント
+  main.tsx         # Reactルート
 ```
 
 ---
@@ -858,12 +862,13 @@ async function saveGame(data: SaveData) {
 ## 実装優先順位
 
 ### Phase 1: MVP（最小実装）
-1. グリッドシステム（5x5固定）
-2. 基本建物（Generator, Conveyor, Transformer, Output）
-3. 2種類の文字リソース（"A", "B"）
-4. 2種類のアイコンリソース（Star, Circle）
-5. 簡単なレシピ発見（自動）
-6. 基本的なリソースフロー
+1. Vite + React + TailwindCSSのセットアップ
+2. グリッドシステム（5x5固定）
+3. 基本建物（Generator, Conveyor, Merger, Output）
+4. 2種類の文字リソース（"1", "2"）
+5. 2種類のアイコンリソース（Star, Circle）
+6. 簡単なレシピ発見（自動）
+7. 基本的なリソースフロー
 
 ### Phase 2: コアループ
 1. スキルツリー（基礎ブランチのみ）

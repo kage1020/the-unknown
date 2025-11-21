@@ -62,18 +62,19 @@ the-unknown/
 │   │   ├── db.ts           # IndexedDB wrapper
 │   │   ├── icons.ts        # アイコンライブラリ管理
 │   │   └── constants.ts    # 定数
-│   └── app/                # Next.js App Router
-│       ├── page.tsx
-│       ├── layout.tsx
-│       └── globals.css
+│   ├── main.tsx            # エントリーポイント
+│   ├── App.tsx             # ルートコンポーネント
+│   └── index.css           # グローバルスタイル
 ├── public/
 ├── docs/
 │   ├── GAME_DESIGN.md
 │   └── TECHNICAL_SPEC.md   # このファイル
+├── index.html              # HTML エントリーポイント
 ├── package.json
 ├── tsconfig.json
 ├── tailwind.config.ts
-└── next.config.js
+├── vite.config.ts
+└── vitest.config.ts
 ```
 
 ---
@@ -250,9 +251,6 @@ export class FlowEngine {
       case 'generator':
         return this.processGenerator(building);
 
-      case 'transformer':
-        return this.processTransformer(building, grid);
-
       case 'merger':
         return this.processMerger(building, grid);
 
@@ -262,40 +260,10 @@ export class FlowEngine {
   }
 
   private processGenerator(building: Building): Flow {
-    // 生成器は常に出力
+    // 生成器は常に出力（入力なし）
     return {
       building,
       input: [],
-      output: building.recipe!.output,
-      position: building.position
-    };
-  }
-
-  private processTransformer(building: Building, grid: Grid): Flow | null {
-    // 入力方向からリソースを取得
-    const inputCell = this.getAdjacentCell(
-      grid,
-      building.position,
-      this.getOppositeDirection(building.direction)
-    );
-
-    if (!inputCell || inputCell.resources.length === 0) {
-      return null; // 入力なし
-    }
-
-    const inputResource = inputCell.resources[0]; // 先頭のリソース
-
-    // レシピに一致するか確認
-    if (building.recipe!.input[0].id !== inputResource.id) {
-      return null; // レシピ不一致
-    }
-
-    // 入力を消費して出力
-    inputCell.resources.shift();
-
-    return {
-      building,
-      input: [inputResource],
       output: building.recipe!.output,
       position: building.position
     };
@@ -505,23 +473,19 @@ export class CollectionSystem {
   private generateRecipes(tier: number, resources: Resource[]): Recipe[] {
     const recipes: Recipe[] = [];
 
-    // 1. Simple recipes (A → B)
-    for (let i = 0; i < resources.length; i++) {
-      for (let j = 0; j < resources.length; j++) {
-        if (i === j) continue;
-
-        recipes.push({
-          id: this.generateRecipeId([resources[i]], resources[j], 'transformer'),
-          tier,
-          type: 'simple',
-          input: [resources[i]],
-          output: resources[j],
-          building: 'transformer',
-          discovered: false,
-          timesUsed: 0n,
-          rarity: this.calculateRarity(1, tier, [resources[i]], resources[j])
-        });
-      }
+    // 1. Generation recipes (各リソースのジェネレーター)
+    for (const resource of resources) {
+      recipes.push({
+        id: this.generateRecipeId([], resource, 'generator'),
+        tier,
+        type: 'generation',
+        input: [],
+        output: resource,
+        building: 'generator',
+        discovered: false,
+        timesUsed: 0n,
+        rarity: this.calculateRarity(0, tier, [], resource)
+      });
     }
 
     // 2. Compound recipes - 2つ (A + B → C)
@@ -657,7 +621,7 @@ export class CollectionSystem {
       recipe = {
         id: recipeId,
         tier: this.getCurrentTier(),
-        type: input.length === 1 ? 'simple' : 'compound',
+        type: input.length === 0 ? 'generation' : 'compound',
         input,
         output,
         building: building.type,
@@ -1306,7 +1270,6 @@ export const BASE58_CHARS = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstu
 export const BUILDING_TYPES = [
   'generator',
   'conveyor',
-  'transformer',
   'merger',
   'splitter',
   'filter',
@@ -1358,8 +1321,8 @@ export type Building = {
 export type Recipe = {
   id: string;
   tier: number;
-  type: 'simple' | 'compound';
-  input: Resource[];
+  type: 'generation' | 'compound';
+  input: Resource[];  // generationの場合は空配列
   output: Resource;
   building: BuildingType;
   discovered: boolean;
