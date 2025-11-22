@@ -56,26 +56,19 @@ export class FlowEngine {
     const newCounter = counter + 1
 
     if (newCounter >= ticksRequired) {
-      // Generate resource
-      const success = this.resourceSystem.produce(building.recipe.output, 1n)
+      // Generate resource on the grid (NOT in inventory)
+      const { x, y } = building.position
+      const outputResource = this.createResourceFromRecipeOutput(building.recipe.output)
 
-      if (success) {
-        // Place resource on the grid cell
-        const { x, y } = building.position
-        const outputResource = this.createResourceFromRecipeOutput(building.recipe.output)
+      // Try to place on the building's cell or adjacent cell in the building's direction
+      const placed = this.placeResourceInDirection(building, outputResource)
 
-        // Try to place on the building's cell or adjacent cell in the building's direction
-        const placed = this.placeResourceInDirection(building, outputResource)
-
-        if (!placed) {
-          // If can't place, still add to inventory but don't place on grid
-          console.log(`Generated resource but grid is full at (${x}, ${y})`)
-        }
-
-        // Reset counter
+      if (placed) {
+        // Reset counter only if resource was placed successfully
         this.buildingTickCounters.set(building.id, 0)
       } else {
-        // Keep incrementing if production failed
+        // If can't place, don't reset counter (try again next tick)
+        console.log(`Cannot place resource, grid is full at (${x}, ${y})`)
         this.buildingTickCounters.set(building.id, newCounter)
       }
     } else {
@@ -123,7 +116,7 @@ export class FlowEngine {
     const targetX = x + vector.dx
     const targetY = y + vector.dy
 
-    // Try to place at target position
+    // Only place at target position in the specified direction
     if (this.gridSystem.isValidPosition(targetX, targetY)) {
       const existingResource = this.gridSystem.getResource(targetX, targetY)
       if (!existingResource) {
@@ -132,13 +125,7 @@ export class FlowEngine {
       }
     }
 
-    // If can't place in direction, try the building's own cell
-    const existingResource = this.gridSystem.getResource(x, y)
-    if (!existingResource) {
-      this.gridSystem.setResource(x, y, resource)
-      return true
-    }
-
+    // Cannot place - direction is blocked or out of bounds
     return false
   }
 

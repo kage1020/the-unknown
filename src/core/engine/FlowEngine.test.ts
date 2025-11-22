@@ -16,7 +16,7 @@ describe('FlowEngine', () => {
   })
 
   describe('Generator processing', () => {
-    it('should generate resources after enough ticks', () => {
+    it('should generate resources on grid (not in inventory)', () => {
       // Setup: unlock a resource
       resourceSystem.unlockCharacter('1', 1)
 
@@ -39,7 +39,7 @@ describe('FlowEngine', () => {
 
       gridSystem.placeBuilding(generator)
 
-      // Initial resource count
+      // Initial resource count in inventory
       const resource = resourceSystem.getResource({ type: 'character', value: '1' })
       const initialCount = resource?.count || 0n
 
@@ -48,9 +48,15 @@ describe('FlowEngine', () => {
         flowEngine.tick()
       }
 
-      // Resource should be produced
+      // Inventory should NOT increase (Generator doesn't add to inventory)
       const newCount = resource?.count || 0n
-      expect(newCount).toBeGreaterThan(initialCount)
+      expect(newCount).toBe(initialCount)
+
+      // But resource should be placed on grid
+      const gridResource = gridSystem.getResource(3, 2) || gridSystem.getResource(2, 2)
+      expect(gridResource).not.toBeNull()
+      expect(gridResource?.type).toBe('character')
+      expect(gridResource?.value).toBe('1')
     })
 
     it('should place resource in direction of generator', () => {
@@ -86,7 +92,7 @@ describe('FlowEngine', () => {
       expect(rightCell || buildingCell).not.toBeNull()
     })
 
-    it('should continue generating after first production', () => {
+    it('should not generate if grid is full', () => {
       resourceSystem.unlockCharacter('1', 1)
 
       const generator: Building = {
@@ -107,25 +113,27 @@ describe('FlowEngine', () => {
 
       gridSystem.placeBuilding(generator)
 
-      const resource = resourceSystem.getResource({ type: 'character', value: '1' })!
-      const initialCount = resource.count
-
       // First generation cycle
       for (let i = 0; i < 10; i++) {
         flowEngine.tick()
       }
 
-      const countAfterFirst = resource.count
+      // Resource should be on grid
+      const firstResource = gridSystem.getResource(3, 2) || gridSystem.getResource(2, 2)
+      expect(firstResource).not.toBeNull()
 
-      // Second generation cycle
+      // Second generation cycle - should fail because grid is full
       for (let i = 0; i < 10; i++) {
         flowEngine.tick()
       }
 
-      const countAfterSecond = resource.count
+      // Still only one resource on grid (can't place second one)
+      const cell1 = gridSystem.getResource(3, 2)
+      const cell2 = gridSystem.getResource(2, 2)
 
-      expect(countAfterFirst).toBeGreaterThan(initialCount)
-      expect(countAfterSecond).toBeGreaterThan(countAfterFirst)
+      // Only one cell should have a resource
+      const resourceCount = (cell1 ? 1 : 0) + (cell2 ? 1 : 0)
+      expect(resourceCount).toBe(1)
     })
 
     it('should not generate if recipe is missing', () => {

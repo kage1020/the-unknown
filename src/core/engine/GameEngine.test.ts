@@ -306,12 +306,14 @@ describe('GameEngine', () => {
 
     it('should process game loop with all systems', () => {
       const resourceSystem = gameEngine.getResourceSystem()
+      const gridSystem = gameEngine.getGridSystem()
       resourceSystem.unlockCharacter('1', 1)
 
-      const building: Building = {
+      // Place Generator building
+      const generator: Building = {
         id: 'gen-1',
         type: 'Generator',
-        position: { x: 2, y: 2 },
+        position: { x: 1, y: 2 },
         direction: 'right',
         tier: 1,
         recipe: {
@@ -324,17 +326,49 @@ describe('GameEngine', () => {
         },
       }
 
-      gameEngine.placeBuilding(building)
+      gameEngine.placeBuilding(generator)
 
       const resource = resourceSystem.getResource({ type: 'character', value: '1' })!
       const initialCount = resource.count
 
+      // Run generator for 1 second (10 ticks = 1 generation cycle)
       gameEngine.start()
-      vi.advanceTimersByTime(1000) // 1 second = 10 ticks
+      vi.advanceTimersByTime(1000)
       gameEngine.stop()
 
-      const newCount = resource.count
-      expect(newCount).toBeGreaterThan(initialCount)
+      // Inventory should NOT increase (Generator doesn't add to inventory)
+      const countAfterGen = resource.count
+      expect(countAfterGen).toBe(initialCount)
+
+      // But resource should be placed on grid (right of generator at 2,2)
+      const gridResource = gridSystem.getResource(2, 2)
+      expect(gridResource).not.toBeNull()
+      expect(gridResource?.type).toBe('character')
+      expect(gridResource?.value).toBe('1')
+
+      // Now place Output building adjacent to the resource
+      const output: Building = {
+        id: 'output-1',
+        type: 'Output',
+        position: { x: 3, y: 2 },
+        direction: 'left',
+        tier: 1,
+      }
+
+      gameEngine.placeBuilding(output)
+
+      // Run for one more tick to collect the resource
+      gameEngine.start()
+      vi.advanceTimersByTime(100) // 1 tick
+      gameEngine.stop()
+
+      // Now inventory should increase (Output collected from grid)
+      const finalCount = resource.count
+      expect(finalCount).toBeGreaterThan(initialCount)
+
+      // Resource should be removed from grid
+      const gridResourceAfter = gridSystem.getResource(2, 2)
+      expect(gridResourceAfter).toBeNull()
     })
   })
 })
