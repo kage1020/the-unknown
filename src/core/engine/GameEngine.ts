@@ -1,6 +1,8 @@
 import { GridSystem } from '../systems/GridSystem'
 import { ResourceSystem } from '../systems/ResourceSystem'
 import { IconPoolSystem } from '../systems/IconPoolSystem'
+import { CollectionSystem } from '../systems/CollectionSystem'
+import { TierSystem } from '../systems/TierSystem'
 import { FlowEngine } from './FlowEngine'
 import { GAME_CONFIG } from '../../lib/constants'
 import type { Building } from '../../stores/types'
@@ -59,6 +61,8 @@ export class GameEngine {
   private gridSystem: GridSystem
   private resourceSystem: ResourceSystem
   private iconPoolSystem: IconPoolSystem
+  private collectionSystem: CollectionSystem
+  private tierSystem: TierSystem
   private flowEngine: FlowEngine
   private tickManager: TickManager
 
@@ -76,7 +80,14 @@ export class GameEngine {
     this.gridSystem = new GridSystem(GAME_CONFIG.INITIAL_GRID_SIZE)
     this.resourceSystem = new ResourceSystem()
     this.iconPoolSystem = new IconPoolSystem()
-    this.flowEngine = new FlowEngine(this.gridSystem, this.resourceSystem)
+    this.collectionSystem = new CollectionSystem()
+    this.tierSystem = new TierSystem()
+    this.flowEngine = new FlowEngine(
+      this.gridSystem,
+      this.resourceSystem,
+      this.collectionSystem,
+      (amount) => this.addExperience(amount)
+    )
 
     // Initialize tick manager
     this.tickManager = new TickManager(GAME_CONFIG.TICK_RATE, () => this.tick())
@@ -89,15 +100,53 @@ export class GameEngine {
    * Initialize starting resources for Tier 1
    */
   private initializeStartingResources(): void {
-    // Unlock first character
-    const firstChar = this.resourceSystem.unlockCharacter('1', 1)
-    firstChar.count = 10n // Start with 10 of the first resource
+    // Unlock resources for current tier
+    this.unlockResourcesForTier(this.tier)
 
-    // Unlock first icon
-    const firstIcon = this.iconPoolSystem.unlockNext(1)
-    if (firstIcon) {
-      this.resourceSystem.unlockIcon(firstIcon.name, 1)
+    // Generate initial recipes
+    this.generateRecipesForTier(this.tier)
+  }
+
+  /**
+   * Unlock resources for a specific tier
+   */
+  private unlockResourcesForTier(tier: number): void {
+    const { characters, iconCount } = this.tierSystem.getResourcesForTier(tier)
+
+    // Unlock characters
+    for (const char of characters) {
+      const resource = this.resourceSystem.unlockCharacter(char, tier)
+      if (tier === 1) {
+        resource.count = 10n // Start with 10 of the first resource
+      }
     }
+
+    // Unlock icons
+    for (let i = 0; i < iconCount; i++) {
+      const icon = this.iconPoolSystem.unlockNext(tier)
+      if (icon) {
+        this.resourceSystem.unlockIcon(icon.name, tier)
+      }
+    }
+  }
+
+  /**
+   * Generate recipes for a specific tier
+   */
+  private generateRecipesForTier(tier: number): void {
+    const allResources = this.resourceSystem.getAllResources()
+
+    const characters = allResources
+      .filter(r => r.type === 'character' && r.tier <= tier)
+      .map(r => r.type === 'character' ? r.value : '')
+      .filter(v => v !== '')
+
+    const icons = allResources
+      .filter(r => r.type === 'icon' && r.tier <= tier)
+      .map(r => r.type === 'icon' ? r.iconName : '')
+      .filter(v => v !== '')
+
+    this.collectionSystem.generateRecipes(characters, icons, tier)
   }
 
   /**
@@ -159,6 +208,17 @@ export class GameEngine {
   }
 
   /**
+   * Rotate a building clockwise
+   */
+  rotateBuilding(x: number, y: number): boolean {
+    const success = this.gridSystem.rotateBuilding(x, y)
+    if (success && this.onStateChange) {
+      this.onStateChange()
+    }
+    return success
+  }
+
+  /**
    * Get the grid system
    */
   getGridSystem(): GridSystem {
@@ -177,6 +237,20 @@ export class GameEngine {
    */
   getIconPoolSystem(): IconPoolSystem {
     return this.iconPoolSystem
+  }
+
+  /**
+   * Get the collection system
+   */
+  getCollectionSystem(): CollectionSystem {
+    return this.collectionSystem
+  }
+
+  /**
+   * Get the tier system
+   */
+  getTierSystem(): TierSystem {
+    return this.tierSystem
   }
 
   /**
@@ -237,6 +311,50 @@ export class GameEngine {
   }
 
   /**
+   * Check if can advance to next tier
+   */
+  canAdvanceTier(): { canAdvance: boolean; reason?: string } {
+    const progress = this.collectionSystem.getProgress()
+    return this.tierSystem.canAdvanceTier(
+      this.tier,
+      this.level,
+      progress.discovered,
+      progress.total
+    )
+  }
+
+  /**
+   * Advance to next tier
+   */
+  advanceTier(): boolean {
+    const check = this.canAdvanceTier()
+    if (!check.canAdvance) {
+      console.warn(`Cannot advance tier: ${check.reason}`)
+      return false
+    }
+
+    this.tier++
+    const tierConfig = this.tierSystem.getTierConfig(this.tier)
+
+    // Expand grid
+    this.gridSystem.initializeGrid(tierConfig.gridSize)
+
+    // Unlock new resources
+    this.unlockResourcesForTier(this.tier)
+
+    // Generate new recipes
+    this.generateRecipesForTier(this.tier)
+
+    console.log(`Advanced to Tier ${this.tier}!`)
+
+    if (this.onStateChange) {
+      this.onStateChange()
+    }
+
+    return true
+  }
+
+  /**
    * Serialize game state for saving
    */
   serialize(): {
@@ -247,6 +365,7 @@ export class GameEngine {
     grid: ReturnType<GridSystem['serialize']>
     resources: ReturnType<ResourceSystem['serialize']>
     icons: ReturnType<IconPoolSystem['serialize']>
+    collection: ReturnType<CollectionSystem['serialize']>
     flow: ReturnType<FlowEngine['serialize']>
   } {
     return {
@@ -257,6 +376,7 @@ export class GameEngine {
       grid: this.gridSystem.serialize(),
       resources: this.resourceSystem.serialize(),
       icons: this.iconPoolSystem.serialize(),
+      collection: this.collectionSystem.serialize(),
       flow: this.flowEngine.serialize(),
     }
   }
@@ -272,6 +392,7 @@ export class GameEngine {
     grid: Parameters<GridSystem['deserialize']>[0]
     resources: Parameters<ResourceSystem['deserialize']>[0]
     icons: Parameters<IconPoolSystem['deserialize']>[0]
+    collection: Parameters<CollectionSystem['deserialize']>[0]
     flow: Parameters<FlowEngine['deserialize']>[0]
   }): void {
     this.tier = data.tier
@@ -282,6 +403,7 @@ export class GameEngine {
     this.gridSystem.deserialize(data.grid)
     this.resourceSystem.deserialize(data.resources)
     this.iconPoolSystem.deserialize(data.icons)
+    this.collectionSystem.deserialize(data.collection)
     this.flowEngine.deserialize(data.flow)
 
     if (this.onStateChange) {

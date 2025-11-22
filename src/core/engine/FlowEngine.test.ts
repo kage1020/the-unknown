@@ -2,17 +2,20 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { FlowEngine } from './FlowEngine'
 import { GridSystem } from '../systems/GridSystem'
 import { ResourceSystem } from '../systems/ResourceSystem'
+import { CollectionSystem } from '../systems/CollectionSystem'
 import type { Building } from '../../stores/types'
 
 describe('FlowEngine', () => {
   let flowEngine: FlowEngine
   let gridSystem: GridSystem
   let resourceSystem: ResourceSystem
+  let collectionSystem: CollectionSystem
 
   beforeEach(() => {
     gridSystem = new GridSystem(5)
     resourceSystem = new ResourceSystem()
-    flowEngine = new FlowEngine(gridSystem, resourceSystem)
+    collectionSystem = new CollectionSystem()
+    flowEngine = new FlowEngine(gridSystem, resourceSystem, collectionSystem)
   })
 
   describe('Generator processing', () => {
@@ -56,7 +59,9 @@ describe('FlowEngine', () => {
       const gridResource = gridSystem.getResource(3, 2) || gridSystem.getResource(2, 2)
       expect(gridResource).not.toBeNull()
       expect(gridResource?.type).toBe('character')
-      expect(gridResource?.value).toBe('1')
+      if (gridResource?.type === 'character') {
+        expect(gridResource.value).toBe('1')
+      }
     })
 
     it('should place resource in direction of generator', () => {
@@ -327,7 +332,8 @@ describe('FlowEngine', () => {
       // Create new flow engine and deserialize
       const newGridSystem = new GridSystem(5)
       const newResourceSystem = new ResourceSystem()
-      const newFlowEngine = new FlowEngine(newGridSystem, newResourceSystem)
+      const newCollectionSystem = new CollectionSystem()
+      const newFlowEngine = new FlowEngine(newGridSystem, newResourceSystem, newCollectionSystem)
 
       newFlowEngine.deserialize(serialized)
 

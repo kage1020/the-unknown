@@ -344,7 +344,9 @@ describe('GameEngine', () => {
       const gridResource = gridSystem.getResource(2, 2)
       expect(gridResource).not.toBeNull()
       expect(gridResource?.type).toBe('character')
-      expect(gridResource?.value).toBe('1')
+      if (gridResource?.type === 'character') {
+        expect(gridResource.value).toBe('1')
+      }
 
       // Now place Output building adjacent to the resource
       const output: Building = {

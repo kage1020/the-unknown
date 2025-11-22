@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { GameEngine } from '../core/engine/GameEngine'
 import type { Building, Grid, Resource, BuildingType, Direction } from './types'
+import { saveGame, loadGame } from '../lib/db'
 
 interface GameStore {
   // Game engine instance
@@ -25,9 +26,13 @@ interface GameStore {
   toggleEngine: () => void
   placeBuilding: (x: number, y: number, type: BuildingType) => void
   removeBuilding: (x: number, y: number) => void
+  rotateBuilding: (x: number, y: number) => void
   selectBuildingType: (type: BuildingType | null) => void
   setDirection: (direction: Direction) => void
   updateState: () => void
+  saveGame: (saveId?: string) => Promise<void>
+  loadGame: (saveId?: string) => Promise<void>
+  advanceTier: () => void
 }
 
 export const useGameStore = create<GameStore>((set, get) => {
@@ -117,6 +122,12 @@ export const useGameStore = create<GameStore>((set, get) => {
       get().updateState()
     },
 
+    rotateBuilding: (x: number, y: number) => {
+      const { engine } = get()
+      engine.rotateBuilding(x, y)
+      get().updateState()
+    },
+
     selectBuildingType: (type: BuildingType | null) => {
       set({ selectedBuildingType: type })
     },
@@ -135,6 +146,37 @@ export const useGameStore = create<GameStore>((set, get) => {
         experience: engine.getExperience(),
         tickCount: engine.getTickCount(),
       })
+    },
+
+    saveGame: async (saveId: string = 'autosave') => {
+      const { engine } = get()
+      const data = engine.serialize()
+      await saveGame(saveId, data)
+    },
+
+    loadGame: async (saveId: string = 'autosave') => {
+      const { engine } = get()
+      const data = await loadGame(saveId)
+
+      if (data) {
+        // Stop engine before loading
+        engine.stop()
+        set({ isRunning: false })
+
+        // Load data
+        engine.deserialize(data as Parameters<typeof engine.deserialize>[0])
+
+        // Update state
+        get().updateState()
+      }
+    },
+
+    advanceTier: () => {
+      const { engine } = get()
+      const success = engine.advanceTier()
+      if (success) {
+        get().updateState()
+      }
     },
   }
 })

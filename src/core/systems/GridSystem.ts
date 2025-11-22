@@ -94,6 +94,27 @@ export class GridSystem {
   }
 
   /**
+   * Rotate a building clockwise
+   */
+  rotateBuilding(x: number, y: number): boolean {
+    const building = this.getBuilding(x, y)
+    if (!building) {
+      return false
+    }
+
+    // Rotate clockwise: up -> right -> down -> left -> up
+    const rotations: Record<Building['direction'], Building['direction']> = {
+      up: 'right',
+      right: 'down',
+      down: 'left',
+      left: 'up',
+    }
+
+    building.direction = rotations[building.direction]
+    return true
+  }
+
+  /**
    * Get a cell at the specified position
    */
   getCell(x: number, y: number): Cell {
