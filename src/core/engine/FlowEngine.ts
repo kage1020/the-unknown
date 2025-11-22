@@ -52,7 +52,10 @@ export class FlowEngine {
     const counter = this.buildingTickCounters.get(building.id) || 0
     const ticksRequired = BUILDING_TYPES.Generator.ticksPerGeneration
 
-    if (counter >= ticksRequired) {
+    // Increment counter first
+    const newCounter = counter + 1
+
+    if (newCounter >= ticksRequired) {
       // Generate resource
       const success = this.resourceSystem.produce(building.recipe.output, 1n)
 
@@ -71,10 +74,13 @@ export class FlowEngine {
 
         // Reset counter
         this.buildingTickCounters.set(building.id, 0)
+      } else {
+        // Keep incrementing if production failed
+        this.buildingTickCounters.set(building.id, newCounter)
       }
     } else {
-      // Increment counter
-      this.buildingTickCounters.set(building.id, counter + 1)
+      // Update counter
+      this.buildingTickCounters.set(building.id, newCounter)
     }
   }
 

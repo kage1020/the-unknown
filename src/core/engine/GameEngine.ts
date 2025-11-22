@@ -25,14 +25,14 @@ class TickManager {
     }
 
     const interval = 1000 / this.tickRate
-    this.intervalId = window.setInterval(() => {
+    this.intervalId = (globalThis.setInterval as typeof setInterval)(() => {
       this.onTick()
     }, interval)
   }
 
   stop(): void {
     if (this.intervalId !== null) {
-      window.clearInterval(this.intervalId)
+      globalThis.clearInterval(this.intervalId)
       this.intervalId = null
     }
   }
