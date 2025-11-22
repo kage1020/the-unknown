@@ -1,5 +1,6 @@
 import { useGameStore } from '../../stores/gameStore'
 import type { BuildingType } from '../../stores/types'
+import { cn } from '../../lib/utils'
 
 export function BuildingMenu() {
   const {
@@ -23,11 +24,12 @@ export function BuildingMenu() {
       <div className="mb-4 space-y-2">
         <button
           onClick={toggleEngine}
-          className={`w-full px-4 py-2 rounded font-semibold transition-colors ${
+          className={cn(
+            'w-full px-4 py-2 rounded font-semibold transition-colors',
             isRunning
               ? 'bg-red-600 hover:bg-red-700'
               : 'bg-green-600 hover:bg-green-700'
-          }`}
+          )}
         >
           {isRunning ? '⏸️ Pause' : '▶️ Start'}
         </button>
@@ -43,11 +45,12 @@ export function BuildingMenu() {
                 selectedBuildingType === building.type ? null : building.type
               )
             }
-            className={`w-full p-3 rounded transition-colors text-left ${
+            className={cn(
+              'w-full p-3 rounded transition-colors text-left',
               selectedBuildingType === building.type
                 ? 'bg-blue-600 hover:bg-blue-700'
                 : 'bg-gray-800 hover:bg-gray-700'
-            }`}
+            )}
           >
             <div className="flex items-center gap-2">
               <span className="text-2xl">{building.icon}</span>

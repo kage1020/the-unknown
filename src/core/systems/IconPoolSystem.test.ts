@@ -176,8 +176,8 @@ describe('IconPoolSystem', () => {
     })
 
     it('should not affect already unlocked icons', () => {
-      const icon1 = iconPool.unlockNext(1)
-      const icon2 = iconPool.unlockNext(1)
+      iconPool.unlockNext(1)
+      iconPool.unlockNext(1)
 
       const unlockedBefore = iconPool.getUnlockedIcons()
 

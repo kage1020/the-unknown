@@ -1,6 +1,7 @@
 import type { Cell } from '../../stores/types'
 import { getIconByName } from '../../lib/icons'
 import { useGameStore } from '../../stores/gameStore'
+import { cn } from '../../lib/utils'
 
 interface CellViewProps {
   cell: Cell
@@ -49,11 +50,11 @@ export function CellView({ cell }: CellViewProps) {
 
   return (
     <div
-      className={`
-        relative w-16 h-16 border border-gray-700 cursor-pointer
-        transition-colors hover:border-gray-500
-        ${cell.building ? getBuildingColor() : 'bg-gray-900'}
-      `}
+      className={cn(
+        'relative w-16 h-16 border border-gray-700 cursor-pointer',
+        'transition-colors hover:border-gray-500',
+        cell.building ? getBuildingColor() : 'bg-gray-900'
+      )}
       onClick={handleClick}
     >
       {/* Building */}
